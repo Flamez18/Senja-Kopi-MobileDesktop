@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
@@ -15,19 +16,44 @@ class OrderDetailScreen extends StatefulWidget {
 
 class _OrderDetailScreenState extends State<OrderDetailScreen> {
   late Order _order;
+  late Timer _pollingTimer;
 
   @override
   void initState() {
     super.initState();
     _order = widget.order;
-    // Refresh the order detail
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await Provider.of<OrderProvider>(context, listen: false).fetchOrderDetail(_order.id);
-      final refreshed = Provider.of<OrderProvider>(context, listen: false).currentOrder;
-      if (refreshed != null && mounted) {
-        setState(() => _order = refreshed);
+    _fetchDetail();
+
+    _pollingTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (_order.orderStatus == 'waiting_payment') {
+        _fetchDetail();
+      } else {
+        _pollingTimer.cancel();
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _pollingTimer.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchDetail() async {
+    if (!mounted) return;
+    // checkAndSyncPaymentStatus aktif mengecek Midtrans API untuk pesanan digital pending
+    final synced = await Provider.of<OrderProvider>(context, listen: false)
+        .checkAndSyncPaymentStatus(_order.id);
+    if (synced != null && synced.id == _order.id && mounted) {
+      setState(() => _order = synced);
+    } else {
+      // fallback ke fetchOrderDetail untuk pesanan non-digital
+      await Provider.of<OrderProvider>(context, listen: false).fetchOrderDetail(_order.id);
+      final refreshed = Provider.of<OrderProvider>(context, listen: false).currentOrder;
+      if (refreshed != null && refreshed.id == _order.id && mounted) {
+        setState(() => _order = refreshed);
+      }
+    }
   }
 
   static const List<String> _statusTimeline = [
@@ -43,6 +69,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     final currentStatusIndex = _statusTimeline.indexOf(_order.orderStatus);
     final statusColor = OrderProvider.statusColor(_order.orderStatus);
     final statusLabel = OrderProvider.statusLabel(_order.orderStatus);
+
+    final showPaymentButton = _order.orderStatus == 'waiting_payment' &&
+        (_order.paymentMethod == 'qris' || _order.paymentMethod == 'ewallet' || _order.paymentMethod == 'transfer');
 
     return Scaffold(
       backgroundColor: AppColors.bgBody,
@@ -124,10 +153,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                             child: Text(
                               OrderProvider.statusLabel(stepStatus),
                               style: TextStyle(
-                                fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                                color: isDone ? AppColors.textDark : AppColors.textMuted,
-                                fontFamily: 'Plus Jakarta Sans',
-                              ),
+                                  fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                                  color: isDone ? AppColors.textDark : AppColors.textMuted,
+                                  fontFamily: 'Plus Jakarta Sans'),
                             ),
                           ),
                         ),
@@ -197,6 +225,74 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           ],
         ),
       ),
+      bottomNavigationBar: showPaymentButton
+          ? Container(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.1), blurRadius: 12, offset: const Offset(0, -4))],
+              ),
+              child: Consumer<OrderProvider>(
+                builder: (context, provider, _) {
+                  return ElevatedButton.icon(
+                    onPressed: provider.isLoading
+                        ? null
+                        : () async {
+                            String? snapToken = _order.midtransSnapToken;
+                            if (snapToken == null || snapToken.isEmpty) {
+                              snapToken = await provider.initiateOrderPayment(_order.id);
+                            }
+                            if (snapToken != null && snapToken.isNotEmpty) {
+                              final updatedOrder = Order(
+                                id: _order.id,
+                                orderNumber: _order.orderNumber,
+                                orderStatus: _order.orderStatus,
+                                paymentStatus: _order.paymentStatus,
+                                paymentMethod: _order.paymentMethod,
+                                notes: _order.notes,
+                                subtotal: _order.subtotal,
+                                serviceFee: _order.serviceFee,
+                                total: _order.total,
+                                paidAt: _order.paidAt,
+                                midtransSnapToken: snapToken,
+                                createdAt: _order.createdAt,
+                                updatedAt: _order.updatedAt,
+                                branch: _order.branch,
+                                items: _order.items,
+                              );
+                              if (context.mounted) {
+                                Navigator.pushNamed(context, '/payment/qris', arguments: updatedOrder);
+                              }
+                            } else {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(provider.errorMessage ?? 'Gagal membuat portal pembayaran'),
+                                    backgroundColor: AppColors.danger,
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                    icon: provider.isLoading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.payment_rounded),
+                    label: Text(provider.isLoading ? 'Menyiapkan...' : 'Selesaikan Pembayaran'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: AppColors.cream,
+                      minimumSize: const Size(double.infinity, 48),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  );
+                },
+              ),
+            )
+          : null,
     );
   }
 

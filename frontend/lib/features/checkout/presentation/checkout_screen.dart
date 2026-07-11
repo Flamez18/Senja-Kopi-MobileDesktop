@@ -209,19 +209,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   void _navigateToPayment(BuildContext context, Order order, String method) {
-    if (method == 'transfer') {
-      Navigator.pushNamedAndRemoveUntil(
-        context, '/payment/transfer',
-        (r) => r.settings.name == '/home',
-        arguments: order,
-      );
-    } else {
-      Navigator.pushNamedAndRemoveUntil(
-        context, '/payment/qris',
-        (r) => r.settings.name == '/home',
-        arguments: order,
-      );
-    }
+    Navigator.pushNamedAndRemoveUntil(
+      context, '/payment/qris',
+      (r) => r.settings.name == '/home',
+      arguments: order,
+    );
   }
 }
 

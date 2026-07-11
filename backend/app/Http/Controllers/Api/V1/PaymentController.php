@@ -26,10 +26,10 @@ class PaymentController extends Controller
             ], 404);
         }
 
-        if ($order->payment_method !== 'qris') {
+        if (!in_array($order->payment_method, ['qris', 'ewallet', 'transfer'])) {
             return response()->json([
                 'success' => false,
-                'message' => 'Pesanan ini tidak menggunakan metode pembayaran QRIS.',
+                'message' => 'Pesanan ini tidak menggunakan metode pembayaran digital.',
             ], 422);
         }
 
@@ -75,7 +75,7 @@ class PaymentController extends Controller
         // Gunakan reflection atau jadikan method getMidtransSnapToken public/helper.
         // Karena kita di class yang sama, mari kita implementasi ulang fungsi helper pembuat token di sini atau buat method helper baru.
         // Agar rapi, kita tulis kodenya di sini.
-        $snapToken = $this->requestSnapToken($order, $user, $items, $order->service_fee);
+        $snapToken = $this->requestSnapToken($order, $user, $items, $order->service_fee, $order->payment_method);
 
         if ($snapToken) {
             $order->update(['midtrans_snap_token' => $snapToken]);
@@ -187,67 +187,124 @@ class PaymentController extends Controller
             ], 404);
         }
 
+        // Jika sudah paid, langsung kembalikan status dari DB
+        if ($order->payment_status === 'paid') {
+            return response()->json([
+                'success' => true,
+                'message' => 'Status pembayaran berhasil diambil',
+                'data'    => new \App\Http\Resources\OrderResource($order),
+            ]);
+        }
+
+        // Untuk pesanan digital yg masih pending, cek langsung ke Midtrans
+        if (in_array($order->payment_method, ['qris', 'ewallet', 'transfer']) && $order->payment_status === 'pending') {
+            $serverKey    = config('midtrans.server_key');
+            $isProduction = filter_var(config('midtrans.is_production'), FILTER_VALIDATE_BOOLEAN);
+            $baseUrl      = $isProduction
+                ? "https://api.midtrans.com/v2/{$order->order_number}/status"
+                : "https://api.sandbox.midtrans.com/v2/{$order->order_number}/status";
+
+            try {
+                $response = Http::withoutVerifying()
+                    ->withBasicAuth($serverKey, '')
+                    ->get($baseUrl);
+
+                if ($response->successful()) {
+                    $transactionStatus = $response->json('transaction_status');
+                    $fraudStatus       = $response->json('fraud_status');
+
+                    Log::info("Midtrans status check for {$order->order_number}: {$transactionStatus}");
+
+                    if ($transactionStatus === 'settlement' || ($transactionStatus === 'capture' && $fraudStatus === 'accept')) {
+                        $order->update([
+                            'payment_status'         => 'paid',
+                            'order_status'           => 'processing',
+                            'paid_at'                => now(),
+                            'midtrans_transaction_id' => $response->json('transaction_id'),
+                        ]);
+                    } elseif (in_array($transactionStatus, ['deny', 'cancel', 'expire'])) {
+                        $order->update([
+                            'payment_status' => $transactionStatus === 'expire' ? 'expired' : 'failed',
+                            'order_status'   => 'cancelled',
+                        ]);
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::error('Midtrans status check failed: ' . $e->getMessage());
+            }
+
+            $order->refresh();
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Status pembayaran berhasil diambil',
-            'data' => [
-                'order_id' => $order->id,
-                'order_number' => $order->order_number,
-                'payment_method' => $order->payment_method,
-                'payment_status' => $order->payment_status,
-                'order_status' => $order->order_status,
-            ]
+            'data'    => new \App\Http\Resources\OrderResource($order),
         ]);
     }
 
     /**
-     * Helper to request Snap Token (copied to avoid tight controller coupling).
+     * Helper to request Snap Token.
      */
-    private function requestSnapToken(Order $order, $user, array $items, int $serviceFee): ?string
+    private function requestSnapToken(Order $order, $user, array $items, int $serviceFee, string $paymentMethod = 'qris'): ?string
     {
-        $serverKey = env('MIDTRANS_SERVER_KEY');
-        $isProduction = filter_var(env('MIDTRANS_IS_PRODUCTION', false), FILTER_VALIDATE_BOOLEAN);
-        
-        $baseUrl = $isProduction 
-            ? 'https://app.midtrans.com/snap/v1/transactions' 
+        $serverKey    = config('midtrans.server_key');
+        $isProduction = filter_var(config('midtrans.is_production'), FILTER_VALIDATE_BOOLEAN);
+
+        $baseUrl = $isProduction
+            ? 'https://app.midtrans.com/snap/v1/transactions'
             : 'https://app.sandbox.midtrans.com/snap/v1/transactions';
 
         $itemDetails = [];
         foreach ($items as $item) {
             $itemDetails[] = [
-                'id' => (string) $item['product_id'],
-                'price' => (int) $item['product_price'],
+                'id'       => (string) $item['product_id'],
+                'price'    => (int) $item['product_price'],
                 'quantity' => (int) $item['quantity'],
-                'name' => substr($item['product_name'], 0, 50),
+                'name'     => substr($item['product_name'], 0, 50),
             ];
         }
 
         if ($serviceFee > 0) {
             $itemDetails[] = [
-                'id' => 'service_fee',
-                'price' => $serviceFee,
+                'id'       => 'service_fee',
+                'price'    => $serviceFee,
                 'quantity' => 1,
-                'name' => 'Biaya Layanan',
+                'name'     => 'Biaya Layanan',
             ];
         }
 
         $payload = [
             'transaction_details' => [
-                'order_id' => $order->order_number,
+                'order_id'     => $order->order_number,
                 'gross_amount' => (int) $order->total,
             ],
-            'item_details' => $itemDetails,
+            'item_details'     => $itemDetails,
             'customer_details' => [
                 'first_name' => $user->name,
-                'email' => $user->email,
-                'phone' => $user->phone ?? '',
+                'email'      => $user->email,
+                'phone'      => $user->phone ?? '',
             ],
-            'enabled_payments' => ['gopay', 'shopeepay', 'qris', 'other_qris'],
+            'credit_card' => [
+                'secure' => true,
+            ],
+            'callbacks' => [
+                'finish' => 'kopisenja://payment/finish'
+            ]
         ];
+
+        // Limit enabled payments based on selected payment method
+        if ($paymentMethod === 'qris') {
+            $payload['enabled_payments'] = ['qris', 'other_qris', 'gopay', 'shopeepay'];
+        } elseif ($paymentMethod === 'ewallet') {
+            $payload['enabled_payments'] = ['gopay', 'shopeepay'];
+        } elseif ($paymentMethod === 'transfer') {
+            $payload['enabled_payments'] = ['bank_transfer'];
+        }
 
         try {
             $response = Http::withHeaders([
-                'Accept' => 'application/json',
+                'Accept'       => 'application/json',
                 'Content-Type' => 'application/json',
             ])
             ->withoutVerifying()
@@ -255,7 +312,7 @@ class PaymentController extends Controller
             ->post($baseUrl, $payload);
 
             if ($response->successful()) {
-                return $response->json('token');
+                return $response->json('redirect_url');
             }
 
             Log::error('Midtrans Snap Re-initiate Error: ' . $response->body());

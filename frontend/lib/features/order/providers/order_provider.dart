@@ -59,6 +59,47 @@ class OrderProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<String?> initiateOrderPayment(int orderId) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final response = await ApiClient.instance.post(ApiEndpoints.initiatePayment(orderId));
+      _isLoading = false;
+      notifyListeners();
+      if (response.data['success'] == true) {
+        return response.data['data']['midtrans_snap_token'];
+      } else {
+        _errorMessage = response.data['message'] ?? 'Gagal memproses pembayaran';
+        return null;
+      }
+    } on ApiException catch (e) {
+      _errorMessage = e.message;
+    } catch (_) {
+      _errorMessage = 'Terjadi kesalahan jaringan';
+    }
+
+    _isLoading = false;
+    notifyListeners();
+    return null;
+  }
+
+  Future<Order?> checkAndSyncPaymentStatus(int orderId) async {
+    try {
+      final response = await ApiClient.instance.get(ApiEndpoints.paymentStatus(orderId));
+      if (response.data['success'] == true) {
+        final order = Order.fromJson(response.data['data']);
+        // Juga update currentOrder supaya polling di layar lain konsisten
+        _currentOrder = order;
+        notifyListeners();
+        return order;
+      }
+    } on ApiException catch (_) {
+    } catch (_) {}
+    return null;
+  }
+
   // Status helpers
   static String statusLabel(String status) {
     switch (status) {

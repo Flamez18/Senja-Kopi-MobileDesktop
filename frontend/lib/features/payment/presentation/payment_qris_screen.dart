@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/models/order.dart';
+import '../../order/providers/order_provider.dart';
 
 class PaymentQrisScreen extends StatefulWidget {
   final Order order;
@@ -15,6 +17,7 @@ class PaymentQrisScreen extends StatefulWidget {
 
 class _PaymentQrisScreenState extends State<PaymentQrisScreen> {
   late Timer _timer;
+  late Timer _statusPollingTimer;
   int _secondsRemaining = 15 * 60; // 15 minutes
 
   @override
@@ -27,12 +30,56 @@ class _PaymentQrisScreenState extends State<PaymentQrisScreen> {
         _timer.cancel();
       }
     });
+
+    _statusPollingTimer = Timer.periodic(const Duration(seconds: 4), (_) async {
+      if (!mounted) return;
+      final provider = Provider.of<OrderProvider>(context, listen: false);
+      final currentOrder = await provider.checkAndSyncPaymentStatus(widget.order.id);
+      if (currentOrder != null && currentOrder.paymentStatus == 'paid' && mounted) {
+        _statusPollingTimer.cancel();
+        
+        Navigator.pushNamedAndRemoveUntil(
+          context, '/orders/${widget.order.id}',
+          (r) => r.settings.name == '/home',
+          arguments: currentOrder,
+        );
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Pembayaran berhasil dikonfirmasi!'),
+            backgroundColor: AppColors.success,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    });
+
+    // Auto launch on start
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _launchPaymentUrl();
+    });
   }
 
   @override
   void dispose() {
     _timer.cancel();
+    _statusPollingTimer.cancel();
     super.dispose();
+  }
+
+  Future<void> _launchPaymentUrl() async {
+    final token = widget.order.midtransSnapToken;
+    if (token == null) return;
+    final url = Uri.parse(token);
+    try {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal membuka portal: $e')),
+        );
+      }
+    }
   }
 
   String get _timerText {
@@ -46,7 +93,7 @@ class _PaymentQrisScreenState extends State<PaymentQrisScreen> {
     return Scaffold(
       backgroundColor: AppColors.bgBody,
       appBar: AppBar(
-        title: const Text('Pembayaran QRIS'),
+        title: const Text('Pembayaran Digital'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => Navigator.pushNamedAndRemoveUntil(context, '/home', (r) => false),
@@ -93,7 +140,7 @@ class _PaymentQrisScreenState extends State<PaymentQrisScreen> {
                         const Icon(Icons.timer_outlined, color: AppColors.accentGold, size: 16),
                         const SizedBox(width: 6),
                         Text(
-                          'Bayar sebelum $_timerText',
+                          'Selesaikan sebelum $_timerText',
                           style: const TextStyle(
                             color: AppColors.accentGold,
                             fontSize: 12,
@@ -109,9 +156,9 @@ class _PaymentQrisScreenState extends State<PaymentQrisScreen> {
             ),
             const SizedBox(height: 24),
 
-            // QR Code
+            // Redirection Portal Card
             Container(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
@@ -119,104 +166,96 @@ class _PaymentQrisScreenState extends State<PaymentQrisScreen> {
               ),
               child: Column(
                 children: [
-                  // QR Code display (using a static QR image)
-                  Stack(
-                    alignment: Alignment.center,
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.05),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.payment_rounded, size: 64, color: AppColors.primary),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Selesaikan Pembayaran',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textDark,
+                      fontSize: 18,
+                      fontFamily: 'Plus Jakarta Sans',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                   Text(
+                    'Kami mengalihkan Anda ke portal pembayaran Midtrans yang aman untuk menyelesaikan pembayaran ${widget.order.paymentMethod == 'qris' ? 'QRIS' : widget.order.paymentMethod == 'ewallet' ? 'E-Wallet' : 'Transfer Bank'}.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textMuted,
+                      fontFamily: 'Plus Jakarta Sans',
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton.icon(
+                    onPressed: _launchPaymentUrl,
+                    icon: const Icon(Icons.open_in_browser_rounded),
+                    label: const Text('Buka Portal Pembayaran'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: AppColors.cream,
+                      minimumSize: const Size(double.infinity, 50),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
-                          'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${widget.order.orderNumber}&color=3E1F00',
-                          width: 200,
-                          height: 200,
-                          errorBuilder: (_, __, ___) => Container(
-                            width: 200, height: 200,
-                            color: AppColors.creamDark,
-                            child: const Icon(Icons.qr_code_2_rounded, size: 120, color: AppColors.primary),
-                          ),
-                        ),
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
                       ),
-                      // Logo overlay on QR code
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
+                      const SizedBox(width: 10),
+                      Text(
+                        'Menunggu pembayaran...',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.primary.withOpacity(0.8),
+                          fontWeight: FontWeight.w600,
+                          fontFamily: 'Plus Jakarta Sans',
                         ),
-                        child: const Icon(Icons.coffee_rounded, color: AppColors.primary, size: 28),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'SCAN TO PAY',
-                    style: TextStyle(
-                      letterSpacing: 2,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textMuted,
-                      fontSize: 12,
-                      fontFamily: 'Plus Jakarta Sans',
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'No. Order: ${widget.order.orderNumber}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textMuted,
-                      fontFamily: 'Plus Jakarta Sans',
-                    ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
 
-            // Action Buttons
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      // Simulate download
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('QR Code disimpan!')),
-                      );
-                    },
-                    icon: const Icon(Icons.download_rounded, size: 16),
-                    label: const Text('Unduh QR Code'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.primary,
-                      side: const BorderSide(color: AppColors.primary),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.pushNamedAndRemoveUntil(
-                        context, '/orders/${widget.order.id}',
-                        (r) => r.settings.name == '/home',
-                        arguments: widget.order,
-                      );
-                    },
-                    icon: const Icon(Icons.refresh_rounded, size: 16),
-                    label: const Text('Cek Status'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: AppColors.cream,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
-                ),
-              ],
+            // Navigation status check button
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pushNamedAndRemoveUntil(
+                  context, '/orders/${widget.order.id}',
+                  (r) => r.settings.name == '/home',
+                  arguments: widget.order,
+                );
+              },
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Cek Status Pesanan'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
+                minimumSize: const Size(double.infinity, 48),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
             ),
             const SizedBox(height: 24),
 
-            // Steps guide
+            // Steps Guide
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -226,14 +265,14 @@ class _PaymentQrisScreenState extends State<PaymentQrisScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: const [
                   Text(
-                    'Langkah Pembayaran',
+                    'Panduan Pembayaran',
                     style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textDark, fontFamily: 'Plus Jakarta Sans'),
                   ),
                   SizedBox(height: 12),
-                  _StepItem(number: '1', text: 'Buka aplikasi m-banking (BCA, Mandiri), e-wallet GoPay, OVO, Dana.'),
-                  _StepItem(number: '2', text: 'Pilih menu Scan/QRIS pada aplikasi m-banking Anda.'),
-                  _StepItem(number: '3', text: 'Arahkan kamera ke QR Code atau unggah dari galeri.'),
-                  _StepItem(number: '4', text: 'Konfirmasi nominal dan masukkan PIN transaksi Anda.'),
+                  _StepItem(number: '1', text: 'Tekan tombol "Buka Portal Pembayaran" jika halaman tidak terbuka otomatis.'),
+                  _StepItem(number: '2', text: 'Di portal Midtrans, pilih opsi pembayaran QRIS atau E-Wallet pilihan Anda.'),
+                  _StepItem(number: '3', text: 'Lakukan pembayaran menggunakan aplikasi e-wallet atau m-banking Anda.'),
+                  _StepItem(number: '4', text: 'Setelah selesai, kembali ke aplikasi ini. Status pembayaran Anda akan terupdate otomatis.'),
                 ],
               ),
             ),

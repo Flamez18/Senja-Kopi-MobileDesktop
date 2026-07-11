@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
@@ -13,20 +14,48 @@ class OrderHistoryScreen extends StatefulWidget {
   State<OrderHistoryScreen> createState() => _OrderHistoryScreenState();
 }
 
-class _OrderHistoryScreenState extends State<OrderHistoryScreen> with SingleTickerProviderStateMixin {
+class _OrderHistoryScreenState extends State<OrderHistoryScreen>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tabController;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Provider.of<OrderProvider>(context, listen: false).fetchOrders();
+      _refresh();
     });
+
+    // Auto-refresh setiap 5 detik selama ada pesanan yang menunggu bayar
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      final orders = Provider.of<OrderProvider>(context, listen: false).orders;
+      final hasPending = orders.any((o) => o.orderStatus == 'waiting_payment');
+      if (hasPending && mounted) {
+        Provider.of<OrderProvider>(context, listen: false).fetchOrders();
+      }
+    });
+  }
+
+  void _refresh() {
+    if (mounted) {
+      Provider.of<OrderProvider>(context, listen: false).fetchOrders();
+    }
+  }
+
+  // Refresh ketika kembali ke layar ini dari background
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refresh();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _refreshTimer?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -224,7 +253,13 @@ class _OrderCard extends StatelessWidget {
   Widget _actionButton(BuildContext context, Order order) {
     if (order.orderStatus == 'ready') {
       return ElevatedButton(
-        onPressed: () => Navigator.pushNamed(context, '/order-detail', arguments: order),
+        onPressed: () {
+          Navigator.pushNamed(context, '/order-detail', arguments: order).then((_) {
+            if (context.mounted) {
+              Provider.of<OrderProvider>(context, listen: false).fetchOrders();
+            }
+          });
+        },
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.success,
           foregroundColor: Colors.white,
@@ -260,7 +295,13 @@ class _OrderCard extends StatelessWidget {
       );
     }
     return TextButton(
-      onPressed: () => Navigator.pushNamed(context, '/order-detail', arguments: order),
+      onPressed: () {
+        Navigator.pushNamed(context, '/order-detail', arguments: order).then((_) {
+          if (context.mounted) {
+            Provider.of<OrderProvider>(context, listen: false).fetchOrders();
+          }
+        });
+      },
       child: const Text('Detail', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 12)),
     );
   }

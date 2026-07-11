@@ -51,7 +51,7 @@ class CheckoutProvider extends ChangeNotifier {
         ApiEndpoints.orders,
         data: {
           'branch_id': branch.id,
-          'payment_method': _selectedPaymentMethod == 'transfer' ? 'qris' : _selectedPaymentMethod == 'ewallet' ? 'qris' : _selectedPaymentMethod,
+          'payment_method': _selectedPaymentMethod,
           'notes': _notes.isNotEmpty ? _notes : null,
           'items': orderItems,
           'voucher_discount': cart.voucherDiscount > 0 ? cart.voucherDiscount : null,
