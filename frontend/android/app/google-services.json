@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "148408698611",
+    "project_id": "kopi-senja-eb91e",
+    "storage_bucket": "kopi-senja-eb91e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:148408698611:android:7a54b689e9f14dbce39986",
+        "android_client_info": {
+          "package_name": "com.example.frontend"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAOitPiD1dBcSXOvAk2HTvXX6BPqP9P8RA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

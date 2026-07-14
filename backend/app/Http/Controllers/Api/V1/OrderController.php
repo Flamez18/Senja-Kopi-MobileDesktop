@@ -8,6 +8,8 @@ use App\Models\Branch;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
+use App\Models\User;
+use App\Services\FcmService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -138,6 +140,30 @@ class OrderController extends Controller
             }
 
             $order->load(['branch', 'items']);
+
+            // Kirim notifikasi ke semua admin cabang tersebut
+            $adminTokens = User::whereIn('role', ['admin_branch', 'super_admin'])
+                ->where(function ($q) use ($branch) {
+                    $q->where('branch_id', $branch->id)
+                      ->orWhere('role', 'super_admin');
+                })
+                ->whereNotNull('fcm_token')
+                ->pluck('fcm_token')
+                ->toArray();
+
+            if (!empty($adminTokens)) {
+                $fcm = new FcmService();
+                $fcm->sendToMultipleTokens(
+                    $adminTokens,
+                    '🛎️ Pesanan Baru Masuk!',
+                    "#{$order->order_number} dari {$user->name} — Rp" . number_format($order->total, 0, ',', '.'),
+                    [
+                        'order_id'     => (string) $order->id,
+                        'order_number' => $order->order_number,
+                        'type'         => 'new_order',
+                    ]
+                );
+            }
 
             return response()->json([
                 'success' => true,

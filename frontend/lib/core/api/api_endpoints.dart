@@ -12,6 +12,7 @@ class ApiEndpoints {
   static const String me = '/auth/me';
   static const String updateProfile = '/auth/profile';
   static const String updateAvatar = '/auth/avatar';
+  static const String updateFcmToken = '/auth/fcm-token';
 
   // Branches endpoints
   static const String branches = '/branches';

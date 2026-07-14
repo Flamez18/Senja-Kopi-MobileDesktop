@@ -45,6 +45,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/auth/me', [AuthController::class, 'me']);
         Route::put('/auth/profile', [AuthController::class, 'updateProfile']);
         Route::post('/auth/avatar', [AuthController::class, 'updateAvatar']);
+        Route::put('/auth/fcm-token', [AuthController::class, 'updateFcmToken']);
 
         // Orders
         Route::post('/orders', [OrderController::class, 'store']);
