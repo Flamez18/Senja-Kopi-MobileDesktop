@@ -108,7 +108,13 @@ class FcmService
             $client->setAuthConfig($credentialsPath);
             $client->addScope('https://www.googleapis.com/auth/firebase.messaging');
 
-            $token = $client->fetchAccessTokenWithAssertion();
+            // Bypass SSL verification in local environment
+            $guzzleClient = new \GuzzleHttp\Client([
+                'verify' => false
+            ]);
+            $client->setHttpClient($guzzleClient);
+
+            $token = $client->fetchAccessTokenWithAssertion($guzzleClient);
             return $token['access_token'] ?? null;
         } catch (\Exception $e) {
             Log::error('FCM getAccessToken error: ' . $e->getMessage());
