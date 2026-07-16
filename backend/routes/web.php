@@ -25,6 +25,7 @@ Route::middleware(['web', 'admin'])->prefix('admin')->name('admin.')->group(func
     
     // Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/dashboard/recent-orders', [DashboardController::class, 'recentOrders'])->name('dashboard.recentOrders');
 
     // Super Admin Only: Branches, Categories, Products, Admin Users
     Route::resource('/branches', BranchController::class)->except(['show']);
