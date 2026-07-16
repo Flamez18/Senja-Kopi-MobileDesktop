@@ -45,4 +45,36 @@ class Order extends Model
     {
         return $this->hasMany(OrderItem::class);
     }
+
+    /**
+     * Get the order status label in Indonesian.
+     */
+    public function getOrderStatusLabelAttribute(): string
+    {
+        $labels = [
+            'waiting_payment' => 'MENUNGGU BAYAR',
+            'processing'      => 'DIPROSES',
+            'making'          => 'DIBUAT',
+            'ready'           => 'SIAP AMBIL',
+            'completed'       => 'SELESAI',
+            'cancelled'       => 'BATAL',
+        ];
+
+        return $labels[$this->order_status] ?? strtoupper($this->order_status);
+    }
+
+    /**
+     * Get the payment status label in Indonesian.
+     */
+    public function getPaymentStatusLabelAttribute(): string
+    {
+        $labels = [
+            'pending' => 'BELUM LUNAS',
+            'paid'    => 'LUNAS',
+            'failed'  => 'GAGAL',
+            'expired' => 'KEDALUWARSA',
+        ];
+
+        return $labels[$this->payment_status] ?? strtoupper($this->payment_status);
+    }
 }

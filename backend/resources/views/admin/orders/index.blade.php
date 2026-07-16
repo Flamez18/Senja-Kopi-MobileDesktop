@@ -4,10 +4,30 @@
 
 @section('header_title', 'Kelola Pesanan Masuk')
 
+@section('styles')
+<style>
+    .pagination .page-link {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-size: 0.85rem;
+        padding: 6px 12px;
+        transition: all 0.2s;
+    }
+    .pagination .page-link:hover {
+        background-color: var(--accent-cream-dark) !important;
+    }
+    .pagination .page-item.active .page-link:hover {
+        background-color: var(--primary-coffee-light) !important;
+    }
+    .pagination .page-item.disabled .page-link {
+        opacity: 0.4;
+    }
+</style>
+@endsection
+
 @section('content')
 <div class="card card-premium p-4 mb-4 bg-white">
     <h5 class="font-weight-700 text-dark mb-3"><i class="bi bi-funnel me-1 text-primary"></i> Filter Pencarian</h5>
-    
+
     <form action="{{ route('admin.orders.index') }}" method="GET" class="row g-3">
         @if(Auth::user()->isSuperAdmin())
         <div class="col-md-3">
@@ -40,10 +60,10 @@
             <label class="form-label small font-weight-600">Status Pembayaran</label>
             <select name="payment_status" class="form-select">
                 <option value="">Semua Status</option>
-                <option value="pending" {{ request('payment_status') == 'pending' ? 'selected' : '' }}>Pending</option>
-                <option value="paid" {{ request('payment_status') == 'paid' ? 'selected' : '' }}>Paid</option>
-                <option value="failed" {{ request('payment_status') == 'failed' ? 'selected' : '' }}>Failed</option>
-                <option value="expired" {{ request('payment_status') == 'expired' ? 'selected' : '' }}>Expired</option>
+                <option value="pending" {{ request('payment_status') == 'pending' ? 'selected' : '' }}>Belum Lunas</option>
+                <option value="paid" {{ request('payment_status') == 'paid' ? 'selected' : '' }}>Lunas</option>
+                <option value="failed" {{ request('payment_status') == 'failed' ? 'selected' : '' }}>Gagal</option>
+                <option value="expired" {{ request('payment_status') == 'expired' ? 'selected' : '' }}>Kedaluwarsa</option>
             </select>
         </div>
 
@@ -51,9 +71,7 @@
             <button type="submit" class="btn btn-coffee w-100 me-2">
                 <i class="bi bi-search me-1"></i> Filter
             </button>
-            <a href="{{ route('admin.orders.index') }}" class="btn btn-outline-secondary w-100">
-                Reset
-            </a>
+            <a href="{{ route('admin.orders.index') }}" class="btn btn-outline-secondary w-100">Reset</a>
         </div>
     </form>
 </div>
@@ -91,12 +109,12 @@
                     <td class="font-weight-600">Rp {{ number_format($order->total, 0, ',', '.') }}</td>
                     <td>
                         <span class="badge-status badge-{{ $order->payment_status }}">
-                            {{ $order->payment_status }}
+                            {{ $order->payment_status_label }}
                         </span>
                     </td>
                     <td>
                         <span class="badge-status badge-{{ $order->order_status }}">
-                            {{ $order->order_status === 'waiting_payment' ? 'Menunggu Bayar' : ($order->order_status === 'processing' ? 'Diproses' : ($order->order_status === 'making' ? 'Dibuat' : ($order->order_status === 'ready' ? 'Siap Ambil' : ($order->order_status === 'completed' ? 'Selesai' : 'Batal')))) }}
+                            {{ $order->order_status_label }}
                         </span>
                     </td>
                     <td><small class="text-muted">{{ $order->created_at->format('d M Y, H:i') }}</small></td>
@@ -108,16 +126,72 @@
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="{{ Auth::user()->isSuperAdmin() ? 9 : 8 }}" class="text-center text-muted py-4">Belum ada pesanan yang sesuai filter.</td>
+                    <td colspan="{{ Auth::user()->isSuperAdmin() ? 9 : 8 }}" class="text-center text-muted py-4">
+                        Belum ada pesanan yang sesuai filter.
+                    </td>
                 </tr>
                 @endforelse
             </tbody>
         </table>
     </div>
 
-    <!-- Pagination -->
-    <div class="mt-4 d-flex justify-content-center">
-        {{ $orders->links() }}
+    <!-- Custom Pagination -->
+    @if($orders->hasPages())
+    <div class="mt-4 d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <small class="text-muted">
+            Menampilkan {{ $orders->firstItem() }}–{{ $orders->lastItem() }} dari {{ $orders->total() }} pesanan
+        </small>
+        <nav>
+            <ul class="pagination pagination-sm mb-0" style="gap: 4px;">
+                {{-- Previous --}}
+                @if($orders->onFirstPage())
+                    <li class="page-item disabled">
+                        <span class="page-link rounded-3 border-0 bg-light text-muted">
+                            <i class="bi bi-chevron-left"></i>
+                        </span>
+                    </li>
+                @else
+                    <li class="page-item">
+                        <a class="page-link rounded-3 border-0 bg-light text-dark"
+                           href="{{ $orders->previousPageUrl() }}&{{ http_build_query(request()->except('page')) }}">
+                            <i class="bi bi-chevron-left"></i>
+                        </a>
+                    </li>
+                @endif
+
+                {{-- Page Numbers --}}
+                @foreach($orders->getUrlRange(1, $orders->lastPage()) as $page => $url)
+                    @if($page == $orders->currentPage())
+                        <li class="page-item active">
+                            <span class="page-link rounded-3 border-0 fw-bold text-white"
+                                  style="background-color: var(--primary-coffee);">{{ $page }}</span>
+                        </li>
+                    @else
+                        <li class="page-item">
+                            <a class="page-link rounded-3 border-0 bg-light text-dark"
+                               href="{{ $url }}&{{ http_build_query(request()->except('page')) }}">{{ $page }}</a>
+                        </li>
+                    @endif
+                @endforeach
+
+                {{-- Next --}}
+                @if($orders->hasMorePages())
+                    <li class="page-item">
+                        <a class="page-link rounded-3 border-0 bg-light text-dark"
+                           href="{{ $orders->nextPageUrl() }}&{{ http_build_query(request()->except('page')) }}">
+                            <i class="bi bi-chevron-right"></i>
+                        </a>
+                    </li>
+                @else
+                    <li class="page-item disabled">
+                        <span class="page-link rounded-3 border-0 bg-light text-muted">
+                            <i class="bi bi-chevron-right"></i>
+                        </span>
+                    </li>
+                @endif
+            </ul>
+        </nav>
     </div>
+    @endif
 </div>
 @endsection
