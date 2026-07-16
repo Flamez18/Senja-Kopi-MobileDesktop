@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\OrderResource;
 use App\Models\Order;
+use App\Services\FcmService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -165,6 +166,10 @@ class PaymentController extends Controller
             'midtrans_transaction_id' => $payload['transaction_id'] ?? null,
         ]);
 
+        if ($paymentStatus === 'paid') {
+            $this->sendPaymentNotification($order);
+        }
+
         Log::info("Order {$orderId} updated via Midtrans Webhook. Payment: {$paymentStatus}, Order: {$orderStatus}");
 
         return response()->json([
@@ -222,6 +227,7 @@ class PaymentController extends Controller
                             'paid_at'                => now(),
                             'midtrans_transaction_id' => $response->json('transaction_id'),
                         ]);
+                        $this->sendPaymentNotification($order);
                     } elseif (in_array($transactionStatus, ['deny', 'cancel', 'expire'])) {
                         $order->update([
                             'payment_status' => $transactionStatus === 'expire' ? 'expired' : 'failed',
@@ -320,6 +326,34 @@ class PaymentController extends Controller
         } catch (\Exception $e) {
             Log::error('Midtrans Connection Exception: ' . $e->getMessage());
             return null;
+        }
+    }
+
+    /**
+     * Send FCM notification to customer about successful payment.
+     */
+    private function sendPaymentNotification(Order $order): void
+    {
+        $order->load('user');
+        $customerToken = $order->user?->fcm_token;
+        if (!$customerToken) {
+            return;
+        }
+
+        try {
+            $fcm = new FcmService();
+            $fcm->sendToToken(
+                $customerToken,
+                '💰 Pembayaran Dikonfirmasi',
+                "Pembayaran pesanan #{$order->order_number} berhasil. Pesanan Anda sedang diproses!",
+                [
+                    'order_id'     => (string) $order->id,
+                    'order_number' => $order->order_number,
+                    'type'         => 'payment_status',
+                ]
+            );
+        } catch (\Exception $e) {
+            Log::error('FCM payment notification failed: ' . $e->getMessage());
         }
     }
 }

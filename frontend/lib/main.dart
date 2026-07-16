@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 // Core
 import 'core/theme/app_theme.dart';
 import 'core/services/storage_service.dart';
+import 'core/services/fcm_service.dart';
+import 'firebase_options.dart';
 
 // Providers
 import 'features/auth/providers/auth_provider.dart';
@@ -40,6 +43,13 @@ import 'core/models/order.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await StorageService.init();
+
+  // Initialize Firebase
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Initialize FCM Service
+  await FcmService().initialize();
+
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -51,8 +61,27 @@ void main() async {
   runApp(const KopiSenjaApp());
 }
 
-class KopiSenjaApp extends StatelessWidget {
+// Global navigator key untuk navigasi dari notifikasi
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+class KopiSenjaApp extends StatefulWidget {
   const KopiSenjaApp({super.key});
+
+  @override
+  State<KopiSenjaApp> createState() => _KopiSenjaAppState();
+}
+
+class _KopiSenjaAppState extends State<KopiSenjaApp> {
+  @override
+  void initState() {
+    super.initState();
+    // Setup callback navigasi saat notifikasi di-tap
+    FcmService.onNotificationTap = (String? orderId) {
+      if (orderId != null) {
+        navigatorKey.currentState?.pushNamed('/orders');
+      }
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,6 +98,7 @@ class KopiSenjaApp extends StatelessWidget {
         title: 'Kopi Senja',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
+        navigatorKey: navigatorKey,
         initialRoute: '/splash',
         onGenerateRoute: _generateRoute,
       ),

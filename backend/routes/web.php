@@ -39,6 +39,7 @@ Route::middleware(['web', 'admin'])->prefix('admin')->name('admin.')->group(func
 
     // Order Management (Both Roles - filtered inside controller)
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
+    Route::get('/orders/poll/recent', [OrderController::class, 'pollRecent'])->name('orders.poll');
     Route::get('/orders/{id}', [OrderController::class, 'show'])->name('orders.show');
     Route::post('/orders/{id}/status', [OrderController::class, 'updateStatus'])->name('orders.updateStatus');
 });

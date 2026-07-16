@@ -6,6 +6,7 @@ import '../../../core/api/api_client.dart';
 import '../../../core/api/api_endpoints.dart';
 import '../../../core/models/user.dart';
 import '../../../core/services/storage_service.dart';
+import '../../../core/services/fcm_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   User? _user;
@@ -30,6 +31,8 @@ class AuthProvider extends ChangeNotifier {
     if (userJson != null) {
       try {
         _user = User.fromJson(json.decode(userJson));
+        // Upload FCM token ke server setelah restore session
+        FcmService().uploadTokenToServer();
       } catch (_) {
         _user = null;
       }
@@ -68,6 +71,8 @@ class AuthProvider extends ChangeNotifier {
 
         _isLoading = false;
         notifyListeners();
+        // Upload FCM token ke server setelah login berhasil
+        FcmService().uploadTokenToServer();
         return true;
       } else {
         _errorMessage = response.data['message'] ?? 'Login gagal';
@@ -110,6 +115,8 @@ class AuthProvider extends ChangeNotifier {
 
         _isLoading = false;
         notifyListeners();
+        // Upload FCM token ke server setelah register berhasil
+        FcmService().uploadTokenToServer();
         return true;
       } else {
         _errorMessage = response.data['message'] ?? 'Registrasi gagal';

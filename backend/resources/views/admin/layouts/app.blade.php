@@ -223,19 +223,9 @@
                     </a>
                 </li>
                 <li class="{{ Request::routeIs('admin.orders.*') ? 'active' : '' }}">
-                    <a href="{{ route('admin.orders.index') }}">
+                    <a href="{{ route('admin.orders.index') }}" id="admin-orders-link">
                         <i class="bi bi-receipt"></i> Pesanan
-                        @php
-                            $waitingCount = \App\Models\Order::query()
-                                ->when(Auth::user()->isAdminBranch(), function($q) {
-                                    $q->where('branch_id', Auth::user()->branch_id);
-                                })
-                                ->where('order_status', 'waiting_payment')
-                                ->count();
-                        @endphp
-                        @if($waitingCount > 0)
-                            <span class="badge bg-danger ms-auto">{{ $waitingCount }}</span>
-                        @endif
+                        <span id="new-order-badge" class="badge bg-danger ms-auto d-none">0</span>
                     </a>
                 </li>
                 
@@ -300,6 +290,113 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <!-- Chart.js CDN -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- Admin: polling pesanan baru & browser notification -->
+<script>
+(function () {
+    const pollUrl = @json(route('admin.orders.poll'));
+    const ordersUrl = @json(route('admin.orders.index'));
+    const pollIntervalMs = 15000;
+    const storageKey = 'kopi_senja_admin_last_poll';
+    const notifiedKey = 'kopi_senja_admin_notified_orders';
+
+    let lastCheckedAt = sessionStorage.getItem(storageKey) || new Date().toISOString();
+    let notifiedIds = new Set(JSON.parse(sessionStorage.getItem(notifiedKey) || '[]'));
+    const badgeEl = document.getElementById('new-order-badge');
+    let pendingCount = 0;
+
+    function formatRupiah(value) {
+        return 'Rp ' + Number(value).toLocaleString('id-ID');
+    }
+
+    function updateBadge() {
+        if (!badgeEl) return;
+        if (pendingCount > 0) {
+            badgeEl.textContent = pendingCount > 9 ? '9+' : String(pendingCount);
+            badgeEl.classList.remove('d-none');
+        } else {
+            badgeEl.classList.add('d-none');
+        }
+    }
+
+    function showBrowserNotification(order) {
+        const title = 'Pesanan Baru Masuk';
+        const body = `#${order.order_number} dari ${order.customer} — ${formatRupiah(order.total)} (${order.branch})`;
+        const options = {
+            body,
+            icon: '/favicon.ico',
+            tag: `order-${order.id}`,
+        };
+
+        if ('Notification' in window && Notification.permission === 'granted') {
+            const notification = new Notification(title, options);
+            notification.onclick = function () {
+                window.focus();
+                window.location.href = ordersUrl;
+            };
+        }
+    }
+
+    async function requestNotificationPermission() {
+        if (!('Notification' in window)) return;
+        if (Notification.permission === 'default') {
+            await Notification.requestPermission();
+        }
+    }
+
+    async function pollNewOrders() {
+        try {
+            const response = await fetch(`${pollUrl}?since=${encodeURIComponent(lastCheckedAt)}`, {
+                headers: { 'Accept': 'application/json' },
+                credentials: 'same-origin',
+            });
+
+            if (!response.ok) return;
+
+            const data = await response.json();
+            if (!data.success || !Array.isArray(data.orders)) return;
+
+            data.orders.forEach(function (order) {
+                if (notifiedIds.has(String(order.id))) return;
+
+                notifiedIds.add(String(order.id));
+                pendingCount += 1;
+                showBrowserNotification(order);
+            });
+
+            sessionStorage.setItem(notifiedKey, JSON.stringify(Array.from(notifiedIds)));
+
+            if (data.checked_at) {
+                lastCheckedAt = data.checked_at;
+                sessionStorage.setItem(storageKey, lastCheckedAt);
+            }
+
+            updateBadge();
+        } catch (error) {
+            console.warn('Poll pesanan admin gagal:', error);
+        }
+    }
+
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) {
+            pollNewOrders();
+        }
+    });
+
+    const ordersLink = document.getElementById('admin-orders-link');
+    if (ordersLink) {
+        ordersLink.addEventListener('click', function () {
+            pendingCount = 0;
+            updateBadge();
+        });
+    }
+
+    requestNotificationPermission().then(function () {
+        sessionStorage.setItem(storageKey, new Date().toISOString());
+        pollNewOrders();
+        setInterval(pollNewOrders, pollIntervalMs);
+    });
+})();
+</script>
 @yield('scripts')
 </body>
 </html>
