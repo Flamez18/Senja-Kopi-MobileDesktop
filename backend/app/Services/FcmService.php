@@ -107,7 +107,6 @@ class FcmService
             $client = new GoogleClient();
             $client->setAuthConfig($credentialsPath);
             $client->addScope('https://www.googleapis.com/auth/firebase.messaging');
-            $client->useApplicationDefaultCredentials(false);
 
             $token = $client->fetchAccessTokenWithAssertion();
             return $token['access_token'] ?? null;

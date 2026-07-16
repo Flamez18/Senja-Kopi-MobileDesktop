@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Services\FcmService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -49,6 +50,40 @@ class OrderController extends Controller
         }
 
         return view('admin.orders.index', compact('orders', 'branches'));
+    }
+
+    /**
+     * Poll pesanan baru untuk notifikasi browser admin panel.
+     */
+    public function pollRecent(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+        $since = $request->query('since');
+
+        $query = Order::with(['user', 'branch'])
+            ->when($user->isAdminBranch(), fn ($q) => $q->where('branch_id', $user->branch_id))
+            ->latest();
+
+        if ($since) {
+            $query->where('created_at', '>', $since);
+        } else {
+            $query->where('created_at', '>', now()->subSeconds(30));
+        }
+
+        $orders = $query->limit(10)->get()->map(fn (Order $order) => [
+            'id'           => $order->id,
+            'order_number' => $order->order_number,
+            'customer'     => $order->user?->name ?? 'Customer',
+            'branch'       => $order->branch?->name ?? '-',
+            'total'        => (int) $order->total,
+            'created_at'   => $order->created_at?->toIso8601String(),
+        ])->values();
+
+        return response()->json([
+            'success' => true,
+            'orders'  => $orders,
+            'checked_at' => now()->toIso8601String(),
+        ]);
     }
 
     /**
